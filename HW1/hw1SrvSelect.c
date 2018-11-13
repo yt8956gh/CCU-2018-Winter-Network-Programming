@@ -31,15 +31,20 @@ struct FileTypeLinker extensions [] =
     {"png",     "image/png" },
     {"ico",     "image/ico" },
     {"html",    "text/html" },
-
     {0,0} 
 }; 
+
+void *get_in_addr(struct sockaddr *sa) {
+  return sa->sa_family == AF_INET
+    ? (void *) &(((struct sockaddr_in*)sa)->sin_addr)
+    : (void *) &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
 
 
 void socketHandle(int fd)
 {
     int ret=0,openfd=0,extSize = sizeof(extensions)/sizeof(struct FileTypeLinker);
-    int NoSyntaxCheck=off;
+    int openFileSwitch=off;
     char	buff[BUFFSIZE+1],*ptr=NULL,*returnFileType;
     char filename[1024];
 
@@ -48,7 +53,7 @@ void socketHandle(int fd)
 
     ret=read(fd, buff, sizeof(buff));
 
-    if(ret==0 || ret==-1) exit(-1);
+    if(ret==0 || ret==-1) return;
     
     if(ret>0&&ret<BUFFSIZE)
     {
@@ -69,7 +74,7 @@ void socketHandle(int fd)
 
     if( strncmp(buff,"GET ",4) && strncmp(buff,"get ",4) ) //check format
     {
-        exit(-1);
+        return;
     } 
 
     ptr = buff+4;
@@ -85,8 +90,7 @@ void socketHandle(int fd)
 
     printf("[Request Filter]:%s\n",buff);
 
-    //choose filename
-
+    //choose filenames
     if (!strncmp(&buff[0],"GET /\0",6)||!strncmp(&buff[0],"get /\0",6) ) 
     {
         strcpy(filename,"index.html\0"); // if syntax match fotmat "GET /",server return index.html
@@ -95,15 +99,15 @@ void socketHandle(int fd)
     {
         strcpy(filename,"favicon.ico\0"); // return icon of web
     }
-    else if (!strncmp(&buff[0],"GET /..\0",8)||!strncmp(&buff[0],"get /..\0",8) )
-    {
-        write(fd, "Failed to open file", 19); // for forbid browser to trace parent directory
-        exit(-1);
-    }
     else if( (ptr=strstr(&buff[5], "/")) != NULL)
     {
         ptr++;
         strcpy(filename,ptr);
+    }
+    else if (!strncmp(&buff[0],"GET /..\0",8)||!strncmp(&buff[0],"get /..\0",8) )
+    {
+        write(fd, "Failed to open file", 19); // forbid browser to trace parent directory
+        return;
     }
     else
     {
@@ -111,18 +115,16 @@ void socketHandle(int fd)
         return;
     }
 
-    // avoid Ambiguous Request e.g. filename without file extensions
-
-    if( (ptr=strstr(filename, "."))==NULL )
+    // avoid Ambiguous Request e.g. request filename without file extensions
+    if((ptr=strstr(filename, ".")) == NULL)
     {
         write(fd, "Failed to open file", 19);
-        fprintf(stderr,"Ambiguous Request\n");     
-        exit(-1);       
+        fprintf(stderr,"[SERVER] Browser Gives Ambiguous Request\n");          
     }
 
     printf("Request File Type: %s\n",++ptr);
 
-    //prepare Content-Types
+    //prepare Content-Types 
     for(int i=0;i<extSize;i++)
     {       
         if(strcmp(ptr,extensions[i].fileExt)==0)
@@ -149,8 +151,6 @@ void socketHandle(int fd)
     {
         write(fd,buff,ret);
     }
-  
-    close(fd);
 }
 
 
@@ -158,12 +158,17 @@ void socketHandle(int fd)
 int main()
 {
 	
-	int	listenfd, connfd, yes=1;
+	int	listenfd, connfd, fdmax, addrlen, yes=1;
     socklen_t addr_size;
     struct sockaddr_in clientInfo,servaddr;
+    struct sockaddr_storage remoteaddr; // client address
     struct addrinfo hints,*res;
     char tmpstr[BUFFSIZE];
     pid_t childPID;
+
+    fd_set enable_connect_set;
+    fd_set enable_read_set;
+    
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -178,7 +183,6 @@ int main()
         exit(-1);
     } 
 
-
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
     if( (bind(listenfd, res->ai_addr, res->ai_addrlen)) <0) // link specified port to kernel
@@ -192,34 +196,61 @@ int main()
 
     signal(SIGCHLD,SIG_IGN);//通知kernel 「 parent不回收child，child由kernel回收 」
 
-    while(1){ 
+    // 將 listenfd 新增到 enable_connect_set set
+    FD_SET(listenfd, &enable_connect_set);
 
-        memset(&clientInfo,0,sizeof(clientInfo));
-        addr_size = sizeof(clientInfo);
+    // 持續追蹤最大的 file descriptor
+    fdmax = listenfd; // 到listernfd為止
+    
+    while(1) 
+    {
+        enable_read_set = enable_connect_set; // 複製 enable_connect_set
 
-        //accept 要塞入 struct sockaddr_in
-        connfd = accept(listenfd, (struct sockaddr *) &clientInfo, &addr_size); //abandon client's info
-
-        if(connfd==-1) //accept fail
+        if (select(fdmax+1, &enable_read_set, NULL, NULL, NULL) == -1) 
         {
-            perror("Accept");
-            continue;
-        }
-        else //printf client's info 
-        {
-            inet_ntop(AF_INET, &(clientInfo.sin_addr), tmpstr, INET_ADDRSTRLEN);
-            printf("[Server's info]:accept from port:%d IP:%s\n",ntohs(clientInfo.sin_port),tmpstr);
+            perror("[SERVER] Select");
+            exit(4);
         }
 
-        if( (childPID=fork()) ==0)//child
+        // 在現存的連線中尋找需要讀取的資料
+        for (int i=0; i<=fdmax; i++) 
         {
-            close(listenfd); 
-            socketHandle(connfd);  
-            exit(0);
+            if (FD_ISSET(i, & enable_read_set)) // 找到一個!
+            { 
+
+                if (i == listenfd) 
+                {
+                    // handle new connections
+                    addrlen = sizeof remoteaddr;
+                    connfd = accept(listenfd,(struct sockaddr * ) & remoteaddr, &addrlen);
+
+                    if (connfd == -1)
+                    {
+                        perror("[SERVER] Accept");
+                    } 
+                    else 
+                    {
+                        FD_SET(connfd, & enable_connect_set); // 新增到 enable_connect_set
+                        if (connfd > fdmax) { // 持續追蹤最大的 fd
+                            fdmax = connfd;
+                        }
+                        printf("[SERVER] new connection from %s on socket %d\n",
+                            inet_ntop(remoteaddr.ss_family,
+                            get_in_addr((struct sockaddr * ) & remoteaddr),
+                            tmpstr, INET6_ADDRSTRLEN),
+                            connfd);
+                    }
+
+                } 
+                else 
+                {
+                    // 處理來自 client 的資料
+                    socketHandle(i);
+                    FD_CLR(i, & enable_connect_set); // 從 enable_connect_set set 中移除
+                    close(i); // bye!
+                }
+            }
         }
-        else close(connfd);
     }
-
-
     return 0;
 }
