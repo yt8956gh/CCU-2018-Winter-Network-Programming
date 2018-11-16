@@ -158,7 +158,7 @@ void socketHandle(int fd)
 int main()
 {
 	
-	int	listenfd, connfd, yes=1;
+    int listenfd, connfd, yes=1;
     socklen_t addr_size;
     struct sockaddr_in clientInfo,servaddr;
     struct addrinfo hints,*res;
@@ -190,7 +190,9 @@ int main()
     listen(listenfd, 1024); //max connection 
 
 
-    signal(SIGCHLD,SIG_IGN);//通知kernel 「 parent不回收child，child由kernel回收 」
+
+    //avoid Zombie Process in the way of notifying kernel that child will be recover by kernel not parent 
+    signal(SIGCHLD,SIG_IGN);
 
     while(1){ 
 
