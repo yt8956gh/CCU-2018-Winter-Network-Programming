@@ -194,7 +194,8 @@ int main()
     listen(listenfd, 1024); //max connection 
 
 
-    signal(SIGCHLD,SIG_IGN);//通知kernel 「 parent不回收child，child由kernel回收 」
+    // notify kernel that resource of child-process  must be released by kernel not parent.
+    signal(SIGCHLD,SIG_IGN);
 
     // 將 listenfd 新增到 enable_connect_set set
     FD_SET(listenfd, &enable_connect_set);
