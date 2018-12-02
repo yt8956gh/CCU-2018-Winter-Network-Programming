@@ -75,19 +75,11 @@ int main(int argc, char **argv)
 	freeaddrinfo(srvinfo); // all done with this structure
 
 
-    sendSize = sizeof(argv[1]);
+    numberByte = write(sockfd,argv[1],sizeof(argv[1]));
 
-    while((numberByte = write(sockfd,argv[1],sizeof(argv[1])))>0)
-    {
-        if(sendSize==0) break;
-        sendSize-=numberByte;
-        printf("%s\n",tmp);
-    }
 
     while(fgets(tmp,BUFFER_MAX-1,stdin))
     {
-        sendSize = sizeof(tmp);
-
         numberByte = write(sockfd,tmp,sizeof(tmp));
         // 因為fgets會依據參數BUFFER_MAX自動切字串，
         // 所以不需要擔心stdin會超過sizeof(tmp)，

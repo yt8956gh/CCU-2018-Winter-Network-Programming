@@ -24,37 +24,26 @@
 struct client
 {       
     char username[100];
-    pid_t pid;
-    struct client *next;
+    int pid;
 };
 
 typedef struct client ClientNode;
 
+ClientNode list[100];
+int count=0;
 
-ClientNode *header=NULL;
 
 pthread_mutex_t mutex;
 
 
-
-ClientNode* init_node(ClientNode *node)
+void init_node()
 {
-    if(node==NULL)
+    for(int i=0;i<100;i++) 
     {
-        node = (ClientNode*)malloc(sizeof(ClientNode));
-        node->next = NULL;
+        list[i].username[0] = '\0';
+        list[i].pid = 0;
     }
 
-    return node;
-}
-
-void add(ClientNode *added)
-{
-    if(header!=NULL)
-    {
-        added->next = header->next;
-        header->next = added;
-    }
 }
 
 void socketHandle(void *connectFdPtr)
@@ -67,31 +56,30 @@ void socketHandle(void *connectFdPtr)
     ClientNode *NewNode=NULL,*nodeptr;
 
 
-    printf("PID:%d\n",getpid());
+    printf("[Thread]\tNew Thread's PID:%d\n",getpid());
 
-    if( (ret=read(fd, buff, sizeof(buff))) > 0)
+    if( (ret=read(fd, buff, BUFFSIZE)) > 0)
     {
-        printf("Client's Username: %s\n",buff);
+        printf("[Client]\tUsername: %s\n",buff);
     }
     else
     {
-        fprintf(stderr,"Miss Username\n");
+        fprintf(stderr,"Fail to recieve username\n");
         exit(-1);
     }
 
-    NewNode = init_node(NewNode);
-    NewNode->pid = getpid();
-    memcpy(NewNode->username,buff,sizeof(buff));
+    printf("---------------------------------------------\n");
+
 
     pthread_mutex_lock(&mutex);
+    
+    strncpy(list[count].username,buff,strlen(buff));
+    list[count].pid = getpid();
+    //printf("count:%d in %s %d\n",count,list[count].username,list[count].pid);
 
-    add(NewNode);
+    count++;
 
     pthread_mutex_unlock(&mutex);
-
-    nodeptr = NewNode;
-
-    printf("Username:%s\nPID:%d\n",nodeptr->username,nodeptr->pid);
 
 
     while((ret=recv(fd, buff, sizeof(buff),0))>0)
@@ -102,14 +90,11 @@ void socketHandle(void *connectFdPtr)
 
         if(!strncmp(command,"list\n\0",6))
         {
-            printf("list all username\n");
+            printf("<list all username>\n");
 
-            nodeptr = header->next;
-
-            while(nodeptr!=NULL)
+            for(int i=0;i<count;i++) 
             {
-                printf("Username:%s\nPID:%d\n",nodeptr->username,nodeptr->pid);
-                nodeptr = nodeptr->next;
+                printf("%2d: Username:%s\tPID:%d\n",i,list[i].username,list[i].pid);
             }
 
         }
@@ -146,26 +131,15 @@ void socketHandle(void *connectFdPtr)
 int main()
 {
 	
-    int listenfd, connfd, yes=1;
+    int listenfd, connfd, yes=1, userNumber=0;
     socklen_t addr_size;
     struct sockaddr_in ClientInfo,servaddr;
     struct addrinfo hints,*res;
     char tmpstr[BUFFSIZE];
     pid_t childPID;
-    pthread_t threads;
+    pthread_t thread1,thread2,thread3;
     
-    header = init_node(header);
-
-    if(header!=NULL)
-    {
-        printf("header Node Initialization Successfully\n");
-    }
-    else
-    {
-        printf("Fail to initialize user list\n");
-        exit(-1);
-    }
-    
+    init_node();
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -212,19 +186,29 @@ int main()
         else //printf client's info 
         {
             inet_ntop(AF_INET, &(ClientInfo.sin_addr), tmpstr, INET_ADDRSTRLEN);
-            printf("[Server's info]:accept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
+            printf("[Server]\taccept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
         }
 
-        if( (childPID=fork()) ==0)//child
+        userNumber++;
+
+        if((userNumber%3)==1)
         {
-            close(listenfd); 
-            pthread_create(&threads,NULL,(void *)socketHandle,&connfd);
-            pthread_join(threads,NULL);
-              
-            exit(0);
+            pthread_create(&thread1,NULL,(void *)socketHandle,&connfd);
         }
-        else close(connfd);
+        else if((userNumber%3)==2)
+        {
+            pthread_create(&thread2,NULL,(void *)socketHandle,&connfd);
+        }
+        else if((userNumber%3)==0)
+        {
+            pthread_create(&thread3,NULL,(void *)socketHandle,&connfd);
+        }
     }
+
+    pthread_join(thread1,NULL);
+    pthread_join(thread2,NULL);
+    pthread_join(thread3,NULL);
+    
 
     return 0;
 }
