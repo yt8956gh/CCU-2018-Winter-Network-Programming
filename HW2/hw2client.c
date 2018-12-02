@@ -88,14 +88,12 @@ int main(int argc, char **argv)
     {
         sendSize = sizeof(tmp);
 
-        while((numberByte = write(sockfd,tmp,sizeof(tmp)))>0)
-        {
-            if(sendSize==0) break;
-            sendSize-=numberByte;
-            //printf("%s\n",tmp);
-        }
+        numberByte = write(sockfd,tmp,sizeof(tmp));
+        // 因為fgets會依據參數BUFFER_MAX自動切字串，
+        // 所以不需要擔心stdin會超過sizeof(tmp)，
+        // 因此也不需要用while(numberByte = write(...))來傳資料
 
-
+        continue;
     }
 
 

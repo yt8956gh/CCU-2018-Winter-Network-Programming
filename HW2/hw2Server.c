@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 #define PORT "9527"
 #define BUFFSIZE 8192
@@ -32,6 +33,8 @@ typedef struct client ClientNode;
 
 ClientNode *header=NULL;
 
+pthread_mutex_t mutex;
+
 
 
 ClientNode* init_node(ClientNode *node)
@@ -45,20 +48,24 @@ ClientNode* init_node(ClientNode *node)
     return node;
 }
 
-void add(ClientNode *head, ClientNode *added)
+void add(ClientNode *added)
 {
-    if(head!=NULL)
+    if(header!=NULL)
     {
         added->next = header->next;
-        head->next = added;
+        header->next = added;
     }
 }
 
 void socketHandle(void *connectFdPtr)
 {
     int fd = *((int*)connectFdPtr);
-    int ret=0,openfd=0;
-    char	buff[BUFFSIZE+1],command[BUFFSIZE+1]={'\0'};
+    int openfd=0;
+    char	buff[BUFFSIZE+1],command[BUFFSIZE+1],tmp[BUFFSIZE+1];
+    char *ptr=NULL,*delim = "\n";
+    ssize_t  ret;
+    ClientNode *NewNode=NULL,*nodeptr;
+
 
     printf("PID:%d\n",getpid());
 
@@ -72,20 +79,49 @@ void socketHandle(void *connectFdPtr)
         exit(-1);
     }
 
-    ClientNode *tmp=NULL;
+    NewNode = init_node(NewNode);
+    NewNode->pid = getpid();
+    memcpy(NewNode->username,buff,sizeof(buff));
 
-    tmp = init_node(tmp);
+    pthread_mutex_lock(&mutex);
 
-    tmp->pid = getpid();
+    add(NewNode);
 
-    memcpy(tmp->username,buff,sizeof(buff));
+    pthread_mutex_unlock(&mutex);
 
-    add(header,tmp);
+    nodeptr = NewNode;
 
-    while(1)
+    printf("Username:%s\nPID:%d\n",nodeptr->username,nodeptr->pid);
+
+
+    while((ret=recv(fd, buff, sizeof(buff),0))>0)
     {
-        ret=read(fd, buff, sizeof(buff));
-        printf("%s\n",buff);
+        printf("%ld:%s\n",strlen(buff),buff);
+
+        memcpy(command,buff,strlen(buff));
+
+        if(!strncmp(command,"list\n\0",6))
+        {
+            printf("list all username\n");
+
+            nodeptr = header->next;
+
+            while(nodeptr!=NULL)
+            {
+                printf("Username:%s\nPID:%d\n",nodeptr->username,nodeptr->pid);
+                nodeptr = nodeptr->next;
+            }
+
+        }
+        else if(!strncmp(command,"file\n\0",6))
+        {
+            strncpy(tmp,"who will recieve the transfered file ?\n\0",42);
+
+            send(fd,tmp,strlen(tmp),0);
+        }
+
+
+
     }
 
 
@@ -117,11 +153,19 @@ int main()
     char tmpstr[BUFFSIZE];
     pid_t childPID;
     pthread_t threads;
-
     
-    init_node(header);
-    
+    header = init_node(header);
 
+    if(header!=NULL)
+    {
+        printf("header Node Initialization Successfully\n");
+    }
+    else
+    {
+        printf("Fail to initialize user list\n");
+        exit(-1);
+    }
+    
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
