@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <ctype.h>
 
 #define PORT "9527"
 #define BUFFER_MAX 4096
@@ -80,9 +81,9 @@ ssize_t endSend(int fd)
 void socketHandle(void *connectFdPtr)
 {
     int fd = *((int*)connectFdPtr),clientNumber=0;
-    int openfd=0,answerMode=off,reciever=0, broadcast=off;
+    int openfd=0,answerMode=off,talkMode=off,receiver=0, broadcast=off;
     char	buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1];
-    char *ptr=NULL,*delim = "\n";
+    char *ptr=NULL,*rptr, *dptr, *delim = ":";
     ssize_t  ret;
     ClientNode *NewNode=NULL,*nodeptr;
 
@@ -95,7 +96,7 @@ void socketHandle(void *connectFdPtr)
     }
     else
     {
-        strncpy(tmp,"Fail to recieve username\n",27);
+        strncpy(tmp,"Fail to receive username\n",27);
         fprintf(stderr,tmp,NULL);
         send(fd,tmp,strlen(tmp),0);
 
@@ -134,7 +135,7 @@ void socketHandle(void *connectFdPtr)
 
         if(broadcastRead[clientNumber]==0)
         {
-            sprintf(tmp,"[%s] %s\n",list[message[0].sender].username,message[0].detail);
+            sprintf(tmp,"[%s] %s",list[message[0].sender].username,message[0].detail);
             ret = send(fd,tmp,BUFFER_MAX,0);
             ret = endSend(fd);
 
@@ -143,11 +144,60 @@ void socketHandle(void *connectFdPtr)
             pthread_mutex_unlock(&mutex);
         }
 
-
-
-        printf("%s:%ld:%s\n",list[clientNumber].username,strlen(buff),buff);
-
         memcpy(command,buff,strlen(buff));
+
+        if(!strncmp(command,"\n",1))
+        {
+            sprintf(tmp,".");
+            ret = send(fd,tmp,BUFFER_MAX,0);
+            endSend(fd);
+            continue;
+        }
+
+        printf("%s:%ld:%s\n",list[clientNumber].username,strlen(command),command);
+
+        if(talkMode==on)
+        {
+            rptr = strtok(command,delim);
+            dptr = strtok(NULL,delim);
+
+            if(rptr==NULL||dptr==NULL)
+            {
+                sprintf(tmp,"illegal Syntax\n");
+                ret = send(fd,tmp,BUFFER_MAX,0);
+                ret = endSend(fd);
+                talkMode=off;
+                continue;
+            }
+
+            receiver = atoi(rptr);
+            printf("receiver: %d\n",receiver);
+
+            if(receiver>5 || receiver<0)
+            {
+                sprintf(tmp,"illegal receiver\n");
+                ret = send(fd,tmp,BUFFER_MAX,0);
+                ret = endSend(fd);
+                talkMode=off;
+                continue;
+            }
+            
+            if(receiver==0)
+            {
+                for(int i=0;i<6;i++)
+                {
+                    broadcastRead[i]=0;
+                }
+            }
+
+            message[receiver].enable = 1;
+            message[receiver].sender = clientNumber;
+            strcpy(message[receiver].detail,dptr);
+
+            talkMode=off;
+            sprintf(tmp,"Send Successfully\n");
+            ret = send(fd,tmp,BUFFER_MAX,0);
+        }
 
         if(!strncmp(command,"list\n",5))
         {
@@ -169,58 +219,19 @@ void socketHandle(void *connectFdPtr)
         {
             strncpy(tmp,"GET filename\0",14);
             ret = send(fd,tmp,BUFFER_MAX,0);
-            ret = endSend(fd);
-
-            if( (ret=recv(fd, buff, BUFFER_MAX,0)) >0)
-            {
-                printf("[filename] %s\n",buff);
-            }
-
         }
         else if(!strncmp(command,"talk\n\0",6))
         {
-            strncpy(tmp,"GET talking channel (0 for broadcast ,1~5 for private channel)",63);
+            sprintf(tmp,"%s %s","GET who's receiver? What's message?\n"
+                ,"Format [receiver]:[message]");
             ret = send(fd,tmp,BUFFER_MAX,0);
-            ret = endSend(fd);
-
-            if( (ret=recv(fd, buff, BUFFER_MAX,0)) >0)
-            {
-                reciever = atoi(buff);
-                printf("reciever: %d\n",reciever);
-
-                if(reciever>5 || reciever<0)
-                {
-                    strncpy(tmp,"illegal input",14);
-                    ret = send(fd,tmp,BUFFER_MAX,0);
-                    ret = endSend(fd);
-                    continue;
-                }
-                else if(reciever==0)
-                {
-                    for(int i=0;i<6;i++)
-                    {
-                        broadcastRead[i]=0;
-                    }
-                }
-            }
-
-            strncpy(tmp,"GET message",12);
-            ret = send(fd,tmp,BUFFER_MAX,0);
-            ret = endSend(fd);
-
-            if( (ret=recv(fd, buff, BUFFER_MAX,0)) >0)
-            {
-                message[reciever].enable = 1;
-                message[reciever].sender = clientNumber;
-                strcpy(message[reciever].detail,buff);
-            }
+            talkMode=on;
         }
-
-
-        //printf("SEND: %zd\n",ret);
-
-
-        //在server傳輸完字串後送出"*"，讓client從 while(recv()) break出去
+        else
+        {
+            sprintf(tmp,"illegal syntax\n");
+            ret = send(fd,tmp,BUFFER_MAX,0);
+        }
         ret = endSend(fd);
     }
 

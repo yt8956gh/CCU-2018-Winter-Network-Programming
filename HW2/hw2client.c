@@ -97,8 +97,7 @@ int main(int argc, char **argv)
 
         //printf("Enter While\n");
         numberByte = send(sockfd,tmp,BUFFER_MAX,0);
-    
-        
+
         // 因為fgets會依據參數BUFFER_MAX自動切字串，
         // 所以不需要擔心stdin會超過sizeof(tmp)，
         // 因此也不需要用while(numberByte = write(...))來傳資料
@@ -108,7 +107,7 @@ int main(int argc, char **argv)
             if(*tmp == '*') break;
             else if(!strncmp(tmp,"GET",3))
             {
-                printf("What is %s?\n",tmp);
+                printf("%s\n",tmp+3);
             }
             else
             {
