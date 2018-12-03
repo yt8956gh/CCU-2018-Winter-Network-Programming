@@ -12,7 +12,7 @@
 #include <arpa/inet.h>
 #include <signal.h>
 
-#define BUFFER_MAX 8192
+#define BUFFER_MAX 4096
 #define PORT "9527"
 
 void *get_in_addr(struct sockaddr *sa)
@@ -75,17 +75,28 @@ int main(int argc, char **argv)
 	freeaddrinfo(srvinfo); // all done with this structure
 
 
-    numberByte = write(sockfd,argv[1],sizeof(argv[1]));
+    numberByte = send(sockfd,argv[1],sizeof(argv[1]),0);
+
+    if( (numberByte = recv(sockfd,tmp,sizeof(tmp),0)) >0)
+    {
+        printf("%s\n",tmp);
+    }
 
 
     while(fgets(tmp,BUFFER_MAX-1,stdin))
     {
-        numberByte = write(sockfd,tmp,sizeof(tmp));
+
+        printf("Enter While\n");
+        numberByte = send(sockfd,tmp,BUFFER_MAX,0);
         // 因為fgets會依據參數BUFFER_MAX自動切字串，
         // 所以不需要擔心stdin會超過sizeof(tmp)，
         // 因此也不需要用while(numberByte = write(...))來傳資料
 
-        continue;
+        while( (numberByte = recv(sockfd,tmp,BUFFER_MAX,0)) >0)
+        {
+            if(*tmp == '*') break;
+            printf("%s\n",tmp);
+        }
     }
 
 

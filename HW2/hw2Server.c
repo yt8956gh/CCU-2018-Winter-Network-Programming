@@ -15,7 +15,7 @@
 #include <semaphore.h>
 
 #define PORT "9527"
-#define BUFFSIZE 8192
+#define BUFFER_MAX 4096
 #define on 1
 #define off 0
 
@@ -48,9 +48,9 @@ void init_node()
 
 void socketHandle(void *connectFdPtr)
 {
-    int fd = *((int*)connectFdPtr);
+    int fd = *((int*)connectFdPtr),clientNumber=0;
     int openfd=0;
-    char	buff[BUFFSIZE+1],command[BUFFSIZE+1],tmp[BUFFSIZE+1];
+    char	buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1];
     char *ptr=NULL,*delim = "\n";
     ssize_t  ret;
     ClientNode *NewNode=NULL,*nodeptr;
@@ -58,13 +58,16 @@ void socketHandle(void *connectFdPtr)
 
     printf("[Thread]\tNew Thread's PID:%d\n",getpid());
 
-    if( (ret=read(fd, buff, BUFFSIZE)) > 0)
+    if( (ret=read(fd, buff, BUFFER_MAX)) > 0)
     {
         printf("[Client]\tUsername: %s\n",buff);
     }
     else
     {
-        fprintf(stderr,"Fail to recieve username\n");
+        strncpy(tmp,"Fail to recieve username\n",27);
+        fprintf(stderr,tmp,NULL);
+        send(fd,tmp,strlen(tmp),0);
+
         exit(-1);
     }
 
@@ -75,6 +78,7 @@ void socketHandle(void *connectFdPtr)
     
     strncpy(list[count].username,buff,strlen(buff));
     list[count].pid = getpid();
+    clientNumber = count;
     //printf("count:%d in %s %d\n",count,list[count].username,list[count].pid);
 
     count++;
@@ -82,31 +86,44 @@ void socketHandle(void *connectFdPtr)
     pthread_mutex_unlock(&mutex);
 
 
-    while((ret=recv(fd, buff, sizeof(buff),0))>0)
+    sprintf(tmp,"Login Successfully\n");
+    send(fd,tmp,strlen(tmp),0);
+
+
+    while((ret=recv(fd, buff, BUFFER_MAX,0))>0)
     {
-        printf("%ld:%s\n",strlen(buff),buff);
+        printf("%s:%ld:%s\n",list[clientNumber].username,strlen(buff),buff);
 
         memcpy(command,buff,strlen(buff));
 
-        if(!strncmp(command,"list\n\0",6))
+        if(!strncmp(command,"list\n",5))
         {
             printf("<list all username>\n");
 
+            memset(buff,'\0',BUFFER_MAX+1);
+
             for(int i=0;i<count;i++) 
             {
-                printf("%2d: Username:%s\tPID:%d\n",i,list[i].username,list[i].pid);
+                sprintf(tmp,"%2d: Username:%s\tPID:%d\n",i,list[i].username,list[i].pid);
+                strcat(buff,tmp);
             }
 
+            printf("%s\n",buff);
+            send(fd,buff,BUFFER_MAX,0);
+            printf("SEND: %zd\n",ret);
         }
         else if(!strncmp(command,"file\n\0",6))
         {
-            strncpy(tmp,"who will recieve the transfered file ?\n\0",42);
+            strncpy(tmp,"GET filename\n\0",42);
 
-            send(fd,tmp,strlen(tmp),0);
+            ret = send(fd,tmp,BUFFER_MAX,0);
+            printf("SEND: %zd\n",ret);
         }
 
+        memset(tmp,'\0',BUFFER_MAX+1);
+        memcpy(tmp,"*",2);
 
-
+        ret = send(fd,tmp,BUFFER_MAX,0);
     }
 
 
@@ -116,7 +133,7 @@ void socketHandle(void *connectFdPtr)
     /*
     if(openfd==-1) write(fd, "Failed to open file", 19);
 
-    while( (ret=read(openfd,buff,BUFFSIZE)) > 0)
+    while( (ret=read(openfd,buff,BUFFER_MAX)) > 0)
     {
         write(fd,buff,ret);
     }
@@ -135,7 +152,7 @@ int main()
     socklen_t addr_size;
     struct sockaddr_in ClientInfo,servaddr;
     struct addrinfo hints,*res;
-    char tmpstr[BUFFSIZE];
+    char tmpstr[BUFFER_MAX];
     pid_t childPID;
     pthread_t thread1,thread2,thread3;
     
