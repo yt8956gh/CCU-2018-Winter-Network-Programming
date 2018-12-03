@@ -16,27 +16,41 @@
 
 #define PORT "9527"
 #define BUFFER_MAX 4096
+#define MESSAG_MAX 2048
+#define MAX_ONLINE
 #define on 1
 #define off 0
 
 
 
-struct client
+typedef struct
 {       
     char username[100];
     int pid;
-};
 
-typedef struct client ClientNode;
+}ClientNode;
 
 ClientNode list[100];
-int count=0;
+
+typedef struct
+{     
+    int enable;
+    int sender;
+    char detail[MESSAG_MAX];
+
+}MessageNode;
+
+MessageNode message[6]; //0 is public channel for broadcast ,1~5 is private channel
+
+
+int count=1;
+int broadcastRead[6];
 
 
 pthread_mutex_t mutex;
 
 
-void init_node()
+void initNode()
 {
     for(int i=0;i<100;i++) 
     {
@@ -44,23 +58,40 @@ void init_node()
         list[i].pid = 0;
     }
 
+    for(int i=0;i<6;i++) 
+    {
+        message[i].enable = 0;
+        message[i].sender = 0;
+        memset(message[i].detail,'\0',MESSAG_MAX);
+    }
+
+    memset(broadcastRead,'0',sizeof(broadcastRead));
+}
+
+ssize_t endSend(int fd)
+{
+    int ret=0;
+    char tmp[BUFFER_MAX]={'\0'};
+
+    memcpy(tmp,"*",2);
+    return send(fd,tmp,BUFFER_MAX,0);
 }
 
 void socketHandle(void *connectFdPtr)
 {
     int fd = *((int*)connectFdPtr),clientNumber=0;
-    int openfd=0;
+    int openfd=0,answerMode=off,reciever=0, broadcast=off;
     char	buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1];
     char *ptr=NULL,*delim = "\n";
     ssize_t  ret;
     ClientNode *NewNode=NULL,*nodeptr;
 
 
-    printf("[Thread]\tNew Thread's PID:%d\n",getpid());
+    printf("[Thread] New Thread's PID:%d\n",getpid());
 
     if( (ret=read(fd, buff, BUFFER_MAX)) > 0)
     {
-        printf("[Client]\tUsername: %s\n",buff);
+        printf("[Client] Username: %s\n",buff);
     }
     else
     {
@@ -92,40 +123,106 @@ void socketHandle(void *connectFdPtr)
 
     while((ret=recv(fd, buff, BUFFER_MAX,0))>0)
     {
+        if(message[clientNumber].enable == 1)
+        {
+            sprintf(tmp,"[%s] %s\n",list[message[clientNumber].sender].username,message[clientNumber].detail);
+            ret = send(fd,tmp,BUFFER_MAX,0);
+            ret = endSend(fd);
+
+            message[clientNumber].enable=0;
+        }
+
+        if(broadcastRead[clientNumber]==0)
+        {
+            sprintf(tmp,"[%s] %s\n",list[message[0].sender].username,message[0].detail);
+            ret = send(fd,tmp,BUFFER_MAX,0);
+            ret = endSend(fd);
+
+            pthread_mutex_lock(&mutex);
+            broadcastRead[clientNumber]=1;
+            pthread_mutex_unlock(&mutex);
+        }
+
+
+
         printf("%s:%ld:%s\n",list[clientNumber].username,strlen(buff),buff);
 
         memcpy(command,buff,strlen(buff));
 
         if(!strncmp(command,"list\n",5))
         {
-            printf("<list all username>\n");
+            printf("[Action] List all username\n");
 
             memset(buff,'\0',BUFFER_MAX+1);
 
-            for(int i=0;i<count;i++) 
+            for(int i=1;i<count;i++) 
             {
                 sprintf(tmp,"%2d: Username:%s\tPID:%d\n",i,list[i].username,list[i].pid);
                 strcat(buff,tmp);
             }
 
             printf("%s\n",buff);
-            send(fd,buff,BUFFER_MAX,0);
-            printf("SEND: %zd\n",ret);
+            ret = send(fd,buff,BUFFER_MAX,0);
+            
         }
         else if(!strncmp(command,"file\n\0",6))
         {
-            strncpy(tmp,"GET filename\n\0",42);
-
+            strncpy(tmp,"GET filename\0",14);
             ret = send(fd,tmp,BUFFER_MAX,0);
-            printf("SEND: %zd\n",ret);
+            ret = endSend(fd);
+
+            if( (ret=recv(fd, buff, BUFFER_MAX,0)) >0)
+            {
+                printf("[filename] %s\n",buff);
+            }
+
+        }
+        else if(!strncmp(command,"talk\n\0",6))
+        {
+            strncpy(tmp,"GET talking channel (0 for broadcast ,1~5 for private channel)",63);
+            ret = send(fd,tmp,BUFFER_MAX,0);
+            ret = endSend(fd);
+
+            if( (ret=recv(fd, buff, BUFFER_MAX,0)) >0)
+            {
+                reciever = atoi(buff);
+                printf("reciever: %d\n",reciever);
+
+                if(reciever>5 || reciever<0)
+                {
+                    strncpy(tmp,"illegal input",14);
+                    ret = send(fd,tmp,BUFFER_MAX,0);
+                    ret = endSend(fd);
+                    continue;
+                }
+                else if(reciever==0)
+                {
+                    for(int i=0;i<6;i++)
+                    {
+                        broadcastRead[i]=0;
+                    }
+                }
+            }
+
+            strncpy(tmp,"GET message",12);
+            ret = send(fd,tmp,BUFFER_MAX,0);
+            ret = endSend(fd);
+
+            if( (ret=recv(fd, buff, BUFFER_MAX,0)) >0)
+            {
+                message[reciever].enable = 1;
+                message[reciever].sender = clientNumber;
+                strcpy(message[reciever].detail,buff);
+            }
         }
 
-        memset(tmp,'\0',BUFFER_MAX+1);
-        memcpy(tmp,"*",2);
 
-        ret = send(fd,tmp,BUFFER_MAX,0);
+        //printf("SEND: %zd\n",ret);
+
+
+        //在server傳輸完字串後送出"*"，讓client從 while(recv()) break出去
+        ret = endSend(fd);
     }
-
 
     close(fd);
     return;
@@ -154,9 +251,9 @@ int main()
     struct addrinfo hints,*res;
     char tmpstr[BUFFER_MAX];
     pid_t childPID;
-    pthread_t thread1,thread2,thread3;
+    pthread_t thread1,thread2,thread3,thread4,thread5;
     
-    init_node();
+    initNode();
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -203,28 +300,38 @@ int main()
         else //printf client's info 
         {
             inet_ntop(AF_INET, &(ClientInfo.sin_addr), tmpstr, INET_ADDRSTRLEN);
-            printf("[Server]\taccept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
+            printf("[Server] Accept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
         }
 
         userNumber++;
 
-        if((userNumber%3)==1)
+        if((userNumber%5)==1)
         {
             pthread_create(&thread1,NULL,(void *)socketHandle,&connfd);
         }
-        else if((userNumber%3)==2)
+        else if((userNumber%5)==2)
         {
             pthread_create(&thread2,NULL,(void *)socketHandle,&connfd);
         }
-        else if((userNumber%3)==0)
+        else if((userNumber%5)==3)
         {
             pthread_create(&thread3,NULL,(void *)socketHandle,&connfd);
+        }
+        else if((userNumber%5)==4)
+        {
+            pthread_create(&thread4,NULL,(void *)socketHandle,&connfd);
+        }
+        else if((userNumber%5)==0)
+        {
+            pthread_create(&thread5,NULL,(void *)socketHandle,&connfd);
         }
     }
 
     pthread_join(thread1,NULL);
     pthread_join(thread2,NULL);
     pthread_join(thread3,NULL);
+    pthread_join(thread4,NULL);
+    pthread_join(thread5,NULL);
     
 
     return 0;

@@ -24,6 +24,15 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+ssize_t endSend(int fd)
+{
+    int ret=0;
+    char tmp[BUFFER_MAX]={'\0'};
+
+    memcpy(tmp,"*",2);
+    return send(fd,tmp,BUFFER_MAX,0);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -88,6 +97,8 @@ int main(int argc, char **argv)
 
         //printf("Enter While\n");
         numberByte = send(sockfd,tmp,BUFFER_MAX,0);
+    
+        
         // 因為fgets會依據參數BUFFER_MAX自動切字串，
         // 所以不需要擔心stdin會超過sizeof(tmp)，
         // 因此也不需要用while(numberByte = write(...))來傳資料
@@ -95,7 +106,14 @@ int main(int argc, char **argv)
         while( (numberByte = recv(sockfd,tmp,BUFFER_MAX,0)) >0)
         {
             if(*tmp == '*') break;
-            printf("%s\n",tmp);
+            else if(!strncmp(tmp,"GET",3))
+            {
+                printf("What is %s?\n",tmp);
+            }
+            else
+            {
+                printf("%s\n",tmp);
+            } 
         }
     }
 
