@@ -98,10 +98,10 @@ void sendMessage(int fd, int clientNumber)
 
 void socketHandle(void *connectFmptr)
 {
-    int fd = *((int*)connectFmptr),clientNumber=0;
-    int talkMode=off,receiver=0;
-    char buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1];
-    char *rptr=NULL, *mptr=NULL, *delim = ":";
+    int fd = *((int*)connectFmptr),openfd=0,clientNumber=0;
+    int talkMode=off,fileMode,receiver=0;
+    char buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1],filename[BUFFER_MAX+1];
+    char *rptr=NULL, *mptr=NULL, *fptr=NULL, *delim = ":";
     ssize_t  ret;
 
 
@@ -200,9 +200,59 @@ void socketHandle(void *connectFmptr)
             talkMode=off;
             sprintf(tmp,"Send Successfully\n");   
         }
+        else if(fileMode==on)
+        {
+            command[1]='\0';
+
+            receiver = atoi(command);
+
+            printf("[Receiver] %d\n",receiver);
+
+            if(receiver>5 || receiver<1 || receiver==clientNumber)
+            {
+                sprintf(tmp,"[Error] Illegal receiver\n");
+                ret = send(fd,tmp,BUFFER_MAX,0);
+                ret = endSend(fd);
+                fileMode=off;
+                continue;
+            }
+
+            if( (ret=read(fd, buff, BUFFER_MAX)) > 0)
+            {
+                strcpy(filename,buff);
+            }
+
+            openfd = open(filename,O_WRONLY | O_CREAT);
+
+            if(openfd<0)
+            {
+                perror("FILE");
+                sprintf(tmp,"[Error] Server cannot receive file.\n");
+                ret = send(fd,tmp,BUFFER_MAX,0);
+                ret = endSend(fd);
+                fileMode=off;
+                continue;
+            }
+
+            printf("[filename] %s\n",filename);
+
+            
+            while( (ret=recv(fd,buff,BUFFER_MAX,0)) > 0)
+            {
+
+                write(openfd,buff,ret);
+                printf("RECV: %zu\n",ret);
+                printf("%s\n",buff);
+                if(ret<BUFFER_MAX) break;
+            }
+
+            printf("out of while\n");
+            sprintf(tmp,"Send file successfully.\n");
+            fileMode=off;
+        }
         else if(!strncmp(command,"list\n",5))
         {
-            printf("[Action] List all username\n");
+            printf("[Action] List all username.\n");
 
             memset(buff,'\0',BUFFER_MAX+1);
 
@@ -216,7 +266,8 @@ void socketHandle(void *connectFmptr)
         }
         else if(!strncmp(command,"file\n",5))
         {
-            strncpy(tmp,"GET filename\0",14);
+            sprintf(tmp,"fileMode");
+            fileMode=on;
         }
         else if(!strncmp(command,"talk\n",5))
         {

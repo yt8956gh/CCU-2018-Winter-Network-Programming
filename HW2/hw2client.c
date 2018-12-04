@@ -36,8 +36,8 @@ ssize_t endSend(int fd)
 
 int main(int argc, char **argv)
 {
-    int sockfd,ret,sendSize;
-    char buffer[BUFFER_MAX],tmp[BUFFER_MAX];
+    int sockfd,openfd,ret,sendSize,receiver=0;
+    char buff[BUFFER_MAX],tmp[BUFFER_MAX],filename[BUFFER_MAX];
     struct addrinfo hints,*srvinfo;
     size_t numberByte=0;
 
@@ -105,6 +105,54 @@ int main(int argc, char **argv)
         while( (numberByte = recv(sockfd,tmp,BUFFER_MAX,0)) >0)
         {
             if(*tmp == '*') break;
+            else if(!strncmp(tmp,"fileMode",8))
+            {
+                printf("What is receiver?\n");
+                
+                while(fgets(tmp,BUFFER_MAX-1,stdin))
+                {
+                    tmp[1] = '\0';
+                    receiver = atoi(tmp);
+                    if(receiver<=5 && receiver>=1) break;
+                    fprintf(stderr,"[ERROR] Illegal Receiver, please key in receiver again.\n");
+                }
+
+                printf("What is filename\n");
+
+                while(fgets(tmp,BUFFER_MAX-1,stdin))
+                {
+                    strcpy(filename,tmp);
+
+                    filename[strlen(tmp)-1] = '\0';
+
+                    openfd = open(filename,O_RDONLY);
+                    
+                    if(openfd != -1) break;
+
+                    fprintf(stderr,"[ERROR] Illegal Filename, please key in filename again.\n");
+                }
+
+                sprintf(buff,"%d",receiver);
+
+                numberByte = send(sockfd,buff,BUFFER_MAX,0);
+
+                sprintf(buff,"%s",filename);
+
+                numberByte = send(sockfd,buff,BUFFER_MAX,0);
+
+                while( (ret=read(openfd,buff,BUFFER_MAX)) > 0)
+                {
+                    numberByte = send(sockfd,buff,ret,0);
+                    printf("SENDED: %d\n",ret);
+                }
+
+
+                if((numberByte = recv(sockfd,tmp,BUFFER_MAX,0)) >0)
+                {
+                    printf("%s\n",tmp);
+                }
+
+            }
             else if(!strncmp(tmp,"GET",3))
             {
                 printf("%s\n",tmp+3);
