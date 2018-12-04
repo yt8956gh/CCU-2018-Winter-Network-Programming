@@ -28,26 +28,21 @@ typedef struct
 {       
     char username[100];
     int pid;
-
 }ClientNode;
-
-ClientNode list[100];
 
 typedef struct
 {     
     int enable;
     int sender;
     char detail[MESSAG_MAX];
-
 }MessageNode;
 
+
+
+ClientNode list[100];
 MessageNode message[6]; //0 is public channel for broadcast ,1~5 is private channel
-
-
-int count=1;
-int broadcastRead[6];
-
-
+int count=1; //紀錄有幾個使用者登入了
+int broadcast[6];
 pthread_mutex_t mutex;
 
 
@@ -64,28 +59,50 @@ void initNode()
         message[i].enable = 0;
         message[i].sender = 0;
         memset(message[i].detail,'\0',MESSAG_MAX);
+        broadcast[i] = 0;
     }
-
-    memset(broadcastRead,'0',sizeof(broadcastRead));
 }
 
 ssize_t endSend(int fd)
 {
-    int ret=0;
     char tmp[BUFFER_MAX]={'\0'};
 
     memcpy(tmp,"*",2);
     return send(fd,tmp,BUFFER_MAX,0);
 }
 
-void socketHandle(void *connectFdPtr)
+void sendMessage(int fd, int clientNumber)
 {
-    int fd = *((int*)connectFdPtr),clientNumber=0;
-    int openfd=0,answerMode=off,talkMode=off,receiver=0, broadcast=off;
-    char	buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1];
-    char *ptr=NULL,*rptr, *dptr, *delim = ":";
+    char tmp[BUFFER_MAX+1];
+
+    if(message[clientNumber].enable == 1)
+    {
+        sprintf(tmp,"[MESSAGE:%d] %s: %s\n",message[clientNumber].sender,list[message[clientNumber].sender].username,message[clientNumber].detail);
+        send(fd,tmp,BUFFER_MAX,0);
+        
+        pthread_mutex_lock(&mutex);
+        message[clientNumber].enable=0;
+        pthread_mutex_unlock(&mutex);
+    }
+
+    if(broadcast[clientNumber]==1)
+    {
+        sprintf(tmp,"[BROADCAST:%d] %s: %s",message[0].sender,list[message[0].sender].username,message[0].detail);
+        send(fd,tmp,BUFFER_MAX,0);
+
+        pthread_mutex_lock(&mutex);
+        broadcast[clientNumber]=0; //已經得到廣播訊息的client會設為0
+        pthread_mutex_unlock(&mutex);
+    }
+}
+
+void socketHandle(void *connectFmptr)
+{
+    int fd = *((int*)connectFmptr),clientNumber=0;
+    int talkMode=off,receiver=0;
+    char buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1];
+    char *rptr=NULL, *mptr=NULL, *delim = ":";
     ssize_t  ret;
-    ClientNode *NewNode=NULL,*nodeptr;
 
 
     printf("[Thread] New Thread's PID:%d\n",getpid());
@@ -124,46 +141,32 @@ void socketHandle(void *connectFdPtr)
 
     while((ret=recv(fd, buff, BUFFER_MAX,0))>0)
     {
-        if(message[clientNumber].enable == 1)
-        {
-            sprintf(tmp,"[%s] %s\n",list[message[clientNumber].sender].username,message[clientNumber].detail);
-            ret = send(fd,tmp,BUFFER_MAX,0);
-            ret = endSend(fd);
+        memset(command,0,sizeof(command));
+        memset(tmp,0,sizeof(tmp));
+        memcpy(command,buff,sizeof(buff));
 
-            message[clientNumber].enable=0;
-        }
-
-        if(broadcastRead[clientNumber]==0)
-        {
-            sprintf(tmp,"[%s] %s",list[message[0].sender].username,message[0].detail);
-            ret = send(fd,tmp,BUFFER_MAX,0);
-            ret = endSend(fd);
-
-            pthread_mutex_lock(&mutex);
-            broadcastRead[clientNumber]=1;
-            pthread_mutex_unlock(&mutex);
-        }
-
-        memcpy(command,buff,strlen(buff));
-
-        if(!strncmp(command,"\n",1))
+        //client會按下ENTER以獲取訊息，server會回傳"."和message(如果有的話)給client
+        if(!strncmp(command,"\n",1)) 
         {
             sprintf(tmp,".");
             ret = send(fd,tmp,BUFFER_MAX,0);
+            sendMessage(fd, clientNumber);
             endSend(fd);
             continue;
         }
 
-        printf("%s:%ld:%s\n",list[clientNumber].username,strlen(command),command);
+        printf("[%s's Request] Length:%ld %s\n",list[clientNumber].username,strlen(command),command);
 
         if(talkMode==on)
         {
+            //cut string with token ":" for syntax checking
+            //Format "Receiver Number:Message"
             rptr = strtok(command,delim);
-            dptr = strtok(NULL,delim);
+            mptr = strtok(NULL,delim);
 
-            if(rptr==NULL||dptr==NULL)
+            if(rptr==NULL||mptr==NULL)
             {
-                sprintf(tmp,"illegal Syntax\n");
+                sprintf(tmp,"[Error] Illegal Syntax\n");
                 ret = send(fd,tmp,BUFFER_MAX,0);
                 ret = endSend(fd);
                 talkMode=off;
@@ -171,35 +174,33 @@ void socketHandle(void *connectFdPtr)
             }
 
             receiver = atoi(rptr);
-            printf("receiver: %d\n",receiver);
+            printf("[Talk Syntax] receiver: %d\n",receiver);
+            printf("[Talk Syntax] Message: %s\n",mptr);
 
-            if(receiver>5 || receiver<0)
+            if(receiver>5 || receiver<0 || receiver==clientNumber)
             {
-                sprintf(tmp,"illegal receiver\n");
+                sprintf(tmp,"[Error] Illegal receiver\n");
                 ret = send(fd,tmp,BUFFER_MAX,0);
                 ret = endSend(fd);
                 talkMode=off;
                 continue;
             }
-            
-            if(receiver==0)
+            else if(receiver==0)
             {
                 for(int i=0;i<6;i++)
                 {
-                    broadcastRead[i]=0;
+                    broadcast[i]=1;
                 }
             }
 
             message[receiver].enable = 1;
             message[receiver].sender = clientNumber;
-            strcpy(message[receiver].detail,dptr);
+            strcpy(message[receiver].detail,mptr);
 
             talkMode=off;
-            sprintf(tmp,"Send Successfully\n");
-            ret = send(fd,tmp,BUFFER_MAX,0);
+            sprintf(tmp,"Send Successfully\n");   
         }
-
-        if(!strncmp(command,"list\n",5))
+        else if(!strncmp(command,"list\n",5))
         {
             printf("[Action] List all username\n");
 
@@ -207,50 +208,42 @@ void socketHandle(void *connectFdPtr)
 
             for(int i=1;i<count;i++) 
             {
-                sprintf(tmp,"%2d: Username:%s\tPID:%d\n",i,list[i].username,list[i].pid);
-                strcat(buff,tmp);
+                sprintf(buff,"%2d: %s\n",i,list[i].username);
+                strcat(tmp,buff);
             }
 
-            printf("%s\n",buff);
-            ret = send(fd,buff,BUFFER_MAX,0);
-            
+            printf("%s\n",tmp);         
         }
-        else if(!strncmp(command,"file\n\0",6))
+        else if(!strncmp(command,"file\n",5))
         {
             strncpy(tmp,"GET filename\0",14);
-            ret = send(fd,tmp,BUFFER_MAX,0);
         }
-        else if(!strncmp(command,"talk\n\0",6))
+        else if(!strncmp(command,"talk\n",5))
         {
-            sprintf(tmp,"%s %s","GET who's receiver? What's message?\n"
-                ,"Format [receiver]:[message]");
-            ret = send(fd,tmp,BUFFER_MAX,0);
+            sprintf(tmp,"%s\n%s",
+                "GET Who is receiver? What is message?",
+                "Format [receiver]:[message]");
+
             talkMode=on;
+        }
+        else if(!strncmp(command,"exit\n",5))
+        {
+            sprintf(tmp,"[Offline] %s",list[clientNumber].username);
+            strcpy(list[clientNumber].username,tmp);
+            sprintf(tmp,"EXIT\n");  
         }
         else
         {
-            sprintf(tmp,"illegal syntax\n");
-            ret = send(fd,tmp,BUFFER_MAX,0);
+            sprintf(tmp,"[Error] Illegal Syntax\n");
         }
-        ret = endSend(fd);
-    }
 
+        ret = send(fd,tmp,BUFFER_MAX,0);
+        ret = endSend(fd);
+        printf("---------------------------------------------\n");
+    }
     close(fd);
     return;
-
-    /*
-    if(openfd==-1) write(fd, "Failed to open file", 19);
-
-    while( (ret=read(openfd,buff,BUFFER_MAX)) > 0)
-    {
-        write(fd,buff,ret);
-    }
-  
-    close(fd);*/
 }
-
-
-
 
 
 int main()
@@ -258,10 +251,9 @@ int main()
 	
     int listenfd, connfd, yes=1, userNumber=0;
     socklen_t addr_size;
-    struct sockaddr_in ClientInfo,servaddr;
+    struct sockaddr_in ClientInfo;
     struct addrinfo hints,*res;
     char tmpstr[BUFFER_MAX];
-    pid_t childPID;
     pthread_t thread1,thread2,thread3,thread4,thread5;
     
     initNode();
@@ -279,7 +271,6 @@ int main()
         exit(-1);
     } 
 
-
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
     if( (bind(listenfd, res->ai_addr, res->ai_addrlen)) <0) // link specified port to kernel
@@ -289,8 +280,6 @@ int main()
     }
 
     listen(listenfd, 1024); //max connection 
-
-
 
     //avoid Zombie Process in the way of notifying kernel that child will be recover by kernel not parent 
     signal(SIGCHLD,SIG_IGN);

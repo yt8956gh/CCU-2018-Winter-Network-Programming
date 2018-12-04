@@ -109,15 +109,20 @@ int main(int argc, char **argv)
             {
                 printf("%s\n",tmp+3);
             }
+            else if(!strncmp(tmp,"EXIT",4))
+            {
+                close(sockfd);
+                return 0;
+            }
             else
             {
                 printf("%s\n",tmp);
             } 
         }
+
+        memset(tmp,'\0',sizeof(tmp));
     }
 
-
 	close(sockfd);
-
 	return 0;
 }
