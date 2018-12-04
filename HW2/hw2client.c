@@ -105,6 +105,37 @@ int main(int argc, char **argv)
         while( (numberByte = recv(sockfd,tmp,BUFFER_MAX,0)) >0)
         {
             if(*tmp == '*') break;
+            else if(!strncmp(tmp,"recvFile",8))
+            {
+                printf("[File Transfer]\n");
+
+                if( (ret=read(sockfd, tmp, BUFFER_MAX)) > 0)
+                {
+                    printf("File sender:%s\n",tmp);
+                }
+
+                if( (ret=read(sockfd, tmp, BUFFER_MAX)) > 0)
+                {
+                    printf("Filename:%s\n",tmp);
+                    strcpy(filename,tmp);
+                }
+
+                openfd = open(filename, O_WRONLY|O_CREAT, 777);
+
+                if(openfd<0) perror("[FILE ERROR]");
+
+                while( (ret=recv(sockfd,buff,BUFFER_MAX,0)) > 0)
+                {
+                    write(openfd,buff,ret);
+                    printf("RECV: %d\n",ret);
+                    //printf("%s\n",buff);
+                    if(ret<BUFFER_MAX) break;
+                }
+
+                close(openfd);
+                printf("Receive file successfully.\n");
+                break;
+            }
             else if(!strncmp(tmp,"fileMode",8))
             {
                 printf("What is receiver?\n");

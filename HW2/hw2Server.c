@@ -38,9 +38,18 @@ typedef struct
 }MessageNode;
 
 
+typedef struct
+{
+    int enable;
+    int sender;
+    char filename[MESSAG_MAX];
+}FileNode;
+
+
 
 ClientNode list[100];
 MessageNode message[6]; //0 is public channel for broadcast ,1~5 is private channel
+FileNode file[6];
 int count=1; //紀錄有幾個使用者登入了
 int broadcast[6];
 pthread_mutex_t mutex;
@@ -58,7 +67,10 @@ void initNode()
     {
         message[i].enable = 0;
         message[i].sender = 0;
+        file[i].enable = 0;
+        file[i].sender = 0;
         memset(message[i].detail,'\0',MESSAG_MAX);
+        memset(file[i].filename,'\0',MESSAG_MAX);
         broadcast[i] = 0;
     }
 }
@@ -96,10 +108,45 @@ void sendMessage(int fd, int clientNumber)
     }
 }
 
+
+void sendFile(int fd, int clientNumber)
+{
+    if(file[clientNumber].enable == 0) return;
+
+    int openfd;
+    char tmp[BUFFER_MAX+1],filename[BUFFER_MAX+1];
+    ssize_t ret;
+
+    sprintf(tmp,"recvFile");
+    ret = send(fd,tmp,BUFFER_MAX,0);
+
+    sprintf(tmp,"%d",file[clientNumber].sender);
+    send(fd,tmp,BUFFER_MAX,0);
+
+    sprintf(tmp,"%s",file[clientNumber].filename);
+    send(fd,tmp,BUFFER_MAX,0);
+
+    openfd = open(file[clientNumber].filename,O_RDONLY);
+
+    while( (ret=read(openfd,tmp,BUFFER_MAX)) > 0)
+    {
+        ret = send(fd,tmp,ret,0);
+        printf("SENDED: %ld\n",ret);
+    }
+
+    close(openfd);
+
+    printf("Send file successfully.\n");
+
+    pthread_mutex_lock(&mutex);
+    file[clientNumber].enable=0;
+    pthread_mutex_unlock(&mutex);
+}
+
 void socketHandle(void *connectFmptr)
 {
     int fd = *((int*)connectFmptr),openfd=0,clientNumber=0;
-    int talkMode=off,fileMode,receiver=0;
+    int talkMode=off,fileMode,receiver=0, fileMessageSwitch=1;
     char buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1],filename[BUFFER_MAX+1];
     char *rptr=NULL, *mptr=NULL, *fptr=NULL, *delim = ":";
     ssize_t  ret;
@@ -115,7 +162,7 @@ void socketHandle(void *connectFmptr)
     {
         strncpy(tmp,"Fail to receive username\n",27);
         fprintf(stderr,tmp,NULL);
-        send(fd,tmp,strlen(tmp),0);
+        send(fd,tmp,sizeof(tmp),0);
 
         exit(-1);
     }
@@ -150,8 +197,20 @@ void socketHandle(void *connectFmptr)
         {
             sprintf(tmp,".");
             ret = send(fd,tmp,BUFFER_MAX,0);
-            sendMessage(fd, clientNumber);
+
+            if(fileMessageSwitch == 1)
+            {
+                sendMessage(fd, clientNumber);
+                fileMessageSwitch=0;
+            }
+            else
+            {
+                sendFile(fd, clientNumber);
+                fileMessageSwitch=1;
+            }
+
             endSend(fd);
+            
             continue;
         }
 
@@ -193,9 +252,11 @@ void socketHandle(void *connectFmptr)
                 }
             }
 
+            pthread_mutex_lock(&mutex);
             message[receiver].enable = 1;
             message[receiver].sender = clientNumber;
             strcpy(message[receiver].detail,mptr);
+            pthread_mutex_unlock(&mutex);
 
             talkMode=off;
             sprintf(tmp,"Send Successfully\n");   
@@ -222,7 +283,7 @@ void socketHandle(void *connectFmptr)
                 strcpy(filename,buff);
             }
 
-            openfd = open(filename,O_WRONLY | O_CREAT);
+            openfd = open(filename, O_WRONLY|O_CREAT, S_IRWXU|S_IRWXG);
 
             if(openfd<0)
             {
@@ -236,7 +297,6 @@ void socketHandle(void *connectFmptr)
 
             printf("[filename] %s\n",filename);
 
-            
             while( (ret=recv(fd,buff,BUFFER_MAX,0)) > 0)
             {
 
@@ -246,9 +306,18 @@ void socketHandle(void *connectFmptr)
                 if(ret<BUFFER_MAX) break;
             }
 
-            printf("out of while\n");
-            sprintf(tmp,"Send file successfully.\n");
+            close(openfd);
+             
+            pthread_mutex_lock(&mutex);
+            file[receiver].enable=1;
+            file[receiver].sender=clientNumber;
+            strcpy(file[receiver].filename,filename);
+            pthread_mutex_unlock(&mutex);
+
             fileMode=off;
+
+            printf("Receive file successfully.\n");
+            sprintf(tmp,"Send file successfully.\n");
         }
         else if(!strncmp(command,"list\n",5))
         {
@@ -281,7 +350,8 @@ void socketHandle(void *connectFmptr)
         {
             sprintf(tmp,"[Offline] %s",list[clientNumber].username);
             strcpy(list[clientNumber].username,tmp);
-            sprintf(tmp,"EXIT\n");  
+            sprintf(tmp,"EXIT\n");
+            break;  
         }
         else
         {
@@ -292,7 +362,10 @@ void socketHandle(void *connectFmptr)
         ret = endSend(fd);
         printf("---------------------------------------------\n");
     }
+
     close(fd);
+
+    printf("%s's thread dead !!\n",list[clientNumber].username);
     return;
 }
 
