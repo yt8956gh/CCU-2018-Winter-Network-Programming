@@ -25,7 +25,8 @@
 
 
 typedef struct
-{       
+{      
+    int enable; 
     char username[100];
     int pid;
 }ClientNode;
@@ -57,10 +58,16 @@ pthread_mutex_t mutex;
 
 void initNode()
 {
-    for(int i=0;i<100;i++) 
+
+    sprintf(list[0].username,"Broadcast");
+    list[0].pid = 0;
+    list[0].enable=1;
+
+    for(int i=1;i<100;i++) 
     {
         list[i].username[0] = '\0';
         list[i].pid = 0;
+        list[i].enable=0;
     }
 
     for(int i=0;i<6;i++) 
@@ -89,7 +96,7 @@ void sendMessage(int fd, int clientNumber)
 
     if(message[clientNumber].enable == 1)
     {
-        sprintf(tmp,"[MESSAGE:%d] %s: %s\n",message[clientNumber].sender,list[message[clientNumber].sender].username,message[clientNumber].detail);
+        sprintf(tmp,"[MESSAGE] %s: %s\n",list[message[clientNumber].sender].username,message[clientNumber].detail);
         send(fd,tmp,BUFFER_MAX,0);
         
         pthread_mutex_lock(&mutex);
@@ -99,7 +106,7 @@ void sendMessage(int fd, int clientNumber)
 
     if(broadcast[clientNumber]==1)
     {
-        sprintf(tmp,"[BROADCAST:%d] %s: %s",message[0].sender,list[message[0].sender].username,message[0].detail);
+        sprintf(tmp,"[BROADCAST] %s: %s",list[message[0].sender].username,message[0].detail);
         send(fd,tmp,BUFFER_MAX,0);
 
         pthread_mutex_lock(&mutex);
@@ -114,7 +121,7 @@ void sendFile(int fd, int clientNumber)
     if(file[clientNumber].enable == 0) return;
 
     int openfd;
-    char tmp[BUFFER_MAX+1],filename[BUFFER_MAX+1];
+    char tmp[BUFFER_MAX+1];
     ssize_t ret;
 
     sprintf(tmp,"recvFile");
@@ -148,7 +155,7 @@ void socketHandle(void *connectFmptr)
     int fd = *((int*)connectFmptr),openfd=0,clientNumber=0;
     int talkMode=off,fileMode,receiver=0, fileMessageSwitch=1;
     char buff[BUFFER_MAX+1],command[BUFFER_MAX+1],tmp[BUFFER_MAX+1],filename[BUFFER_MAX+1];
-    char *rptr=NULL, *mptr=NULL, *fptr=NULL, *delim = ":";
+    char *rptr=NULL, *mptr=NULL, *delim = ":";
     ssize_t  ret;
 
 
@@ -174,6 +181,7 @@ void socketHandle(void *connectFmptr)
     
     strncpy(list[count].username,buff,strlen(buff));
     list[count].pid = getpid();
+    list[count].enable=1;
     clientNumber = count;
     //printf("count:%d in %s %d\n",count,list[count].username,list[count].pid);
 
@@ -236,7 +244,7 @@ void socketHandle(void *connectFmptr)
             printf("[Talk Syntax] receiver: %d\n",receiver);
             printf("[Talk Syntax] Message: %s\n",mptr);
 
-            if(receiver>5 || receiver<0 || receiver==clientNumber)
+            if(receiver>5 || receiver<0 || receiver==clientNumber || list[receiver].enable==0)
             {
                 sprintf(tmp,"[Error] Illegal receiver\n");
                 ret = send(fd,tmp,BUFFER_MAX,0);
@@ -325,7 +333,7 @@ void socketHandle(void *connectFmptr)
 
             memset(buff,'\0',BUFFER_MAX+1);
 
-            for(int i=1;i<count;i++) 
+            for(int i=0;i<count;i++) 
             {
                 sprintf(buff,"%2d: %s\n",i,list[i].username);
                 strcat(tmp,buff);
@@ -340,7 +348,7 @@ void socketHandle(void *connectFmptr)
         }
         else if(!strncmp(command,"talk\n",5))
         {
-            sprintf(tmp,"%s\n%s",
+            sprintf(tmp,"%s\n %s",
                 "GET Who is receiver? What is message?",
                 "Format [receiver]:[message]");
 
@@ -350,6 +358,7 @@ void socketHandle(void *connectFmptr)
         {
             sprintf(tmp,"[Offline] %s",list[clientNumber].username);
             strcpy(list[clientNumber].username,tmp);
+            list[clientNumber].enable=0;
             sprintf(tmp,"EXIT\n");
             break;  
         }

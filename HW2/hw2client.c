@@ -26,7 +26,6 @@ void *get_in_addr(struct sockaddr *sa)
 
 ssize_t endSend(int fd)
 {
-    int ret=0;
     char tmp[BUFFER_MAX]={'\0'};
 
     memcpy(tmp,"*",2);
@@ -36,7 +35,7 @@ ssize_t endSend(int fd)
 
 int main(int argc, char **argv)
 {
-    int sockfd,openfd,ret,sendSize,receiver=0;
+    int sockfd,openfd,ret,receiver=0,cancelFile=0;
     char buff[BUFFER_MAX],tmp[BUFFER_MAX],filename[BUFFER_MAX];
     struct addrinfo hints,*srvinfo;
     size_t numberByte=0;
@@ -120,20 +119,53 @@ int main(int argc, char **argv)
                     strcpy(filename,tmp);
                 }
 
-                openfd = open(filename, O_WRONLY|O_CREAT, 777);
+                printf("Did you want to receive this file ? [yes/no]\n");
 
-                if(openfd<0) perror("[FILE ERROR]");
-
-                while( (ret=recv(sockfd,buff,BUFFER_MAX,0)) > 0)
+                while(fgets(tmp,BUFFER_MAX-1,stdin))
                 {
-                    write(openfd,buff,ret);
-                    printf("RECV: %d\n",ret);
-                    //printf("%s\n",buff);
-                    if(ret<BUFFER_MAX) break;
+                    
+                    if(!strncmp(tmp,"yes",3))
+                    {
+                        cancelFile=0;
+                        break;
+                    }
+                    else if(!strncmp(tmp,"no",2))
+                    {
+                        cancelFile=1;
+                        break;
+                    }
+                    else fprintf(stderr,"[ERROR] Illegal Anwser, please key in answer again.\n");
+                    
                 }
 
-                close(openfd);
-                printf("Receive file successfully.\n");
+                if(cancelFile==0) 
+                {
+                    openfd = open(filename, O_WRONLY|O_CREAT, 777);
+
+                    if(openfd<0) perror("[FILE ERROR]");
+
+                    while( (ret=recv(sockfd,buff,BUFFER_MAX,0)) > 0)
+                    {
+
+                        write(openfd,buff,ret);
+                        printf("RECV: %d\n",ret);
+                        //printf("%s\n",buff);
+                        if(ret<BUFFER_MAX) break;
+                    }
+
+                    close(openfd);
+
+                    printf("Receive file successfully.\n");
+                }
+                else
+                {
+                    while( (ret=recv(sockfd,buff,BUFFER_MAX,0)) > 0)
+                    {
+                        if(ret<BUFFER_MAX) break;
+                    }
+
+                }
+                
                 break;
             }
             else if(!strncmp(tmp,"fileMode",8))
