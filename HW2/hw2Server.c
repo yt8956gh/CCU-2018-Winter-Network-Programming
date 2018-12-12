@@ -25,22 +25,22 @@
 
 
 
-typedef struct//used to record user's info, 0 is for broadcast, 1~n is for user
+typedef struct// Used to record user's info, 0 is for broadcast, 1~n is for user
 {      
-    int enable; //0 is offlilne
+    int enable; // 0 is offlilne
     char username[100];
     int pid;
 }ClientNode;
 
-typedef struct//傳送訊息用
+typedef struct// 傳送訊息用
 {     
-    int enable;//if message have not been read, enable is 1.
+    int enable;// If message have not been read, enable is 1.
     int sender;// record sender's user number
     char detail[MESSAG_MAX];
 }MessageNode;
 
 
-typedef struct//傳送檔案用
+typedef struct// 傳送檔案用
 {
     int enable;
     int sender;
@@ -48,10 +48,10 @@ typedef struct//傳送檔案用
 }FileNode;
 
 ClientNode list[100];
-MessageNode message[USER_MAX+1]; //0 is public channel for broadcast ,1~USER_MAX is private channel
+MessageNode message[USER_MAX+1]; // 0 is public channel for broadcast ,1~USER_MAX is private channel
 FileNode file[USER_MAX+1];
 
-int count=1; //紀錄有幾個使用者登入了。因為0永來廣播，所以從1開始。
+int count=1; // 紀錄有幾個使用者登入了。因為0永來廣播，所以從1開始。
 int broadcast[USER_MAX+1];
 pthread_mutex_t mutex;
 
@@ -83,7 +83,7 @@ void initNode()
 }
 
 
-//send "*" to notify client that this is end of data
+// send "*" to notify client that this is end of data
 ssize_t endSend(int fd)
 {
     char tmp[BUFFER_MAX]={'\0'};
@@ -96,6 +96,7 @@ void sendMessage(int fd, int clientNumber)
 {
     char tmp[BUFFER_MAX+1];
 
+    // private message
     if(message[clientNumber].enable == 1)
     {
         sprintf(tmp,"[MESSAGE] %s: %s\n",list[message[clientNumber].sender].username,message[clientNumber].detail);
@@ -106,6 +107,7 @@ void sendMessage(int fd, int clientNumber)
         pthread_mutex_unlock(&mutex);
     }
 
+    // Broadcast message
     if(broadcast[clientNumber]==1)
     {
         sprintf(tmp,"[BROADCAST] %s: %s",list[message[0].sender].username,message[0].detail);
@@ -150,6 +152,7 @@ void sendFile(int fd, int clientNumber)
 
     printf("Finish file transfer\n");
 
+    // If message is read, enable is 0 
     pthread_mutex_lock(&mutex);
     file[clientNumber].enable=0;
     pthread_mutex_unlock(&mutex);
@@ -166,6 +169,7 @@ void socketHandle(void *connectFmptr)
 
     printf("[Thread] New Thread's PID:%d\n",getpid());
 
+    // recv user's name
     if( (ret=read(fd, buff, BUFFER_MAX)) > 0)
     {
         printf("[Client] Username: %s\n",buff);
@@ -194,7 +198,7 @@ void socketHandle(void *connectFmptr)
 
     pthread_mutex_unlock(&mutex);
 
-    //send login info to client
+    //send "Login Successfully" to client
     sprintf(tmp,"Login Successfully\n");
     send(fd,tmp,strlen(tmp),0);
 
@@ -229,11 +233,10 @@ void socketHandle(void *connectFmptr)
 
         printf("[%s's Request] Length:%ld %s\n",list[clientNumber].username,strlen(command),command);
 
-        if(talkMode==on)
+        if(talkMode==on) // recv message from client
         {
             //Format "Receiver Number:Message"
             //cut string with token ":" for syntax checking
-   
             rptr = strtok(command,delim);
             mptr = strtok(NULL,delim);
 
@@ -266,7 +269,7 @@ void socketHandle(void *connectFmptr)
             }
 
             pthread_mutex_lock(&mutex);
-            message[receiver].enable = 1;
+            message[receiver].enable = 1; // make message can be read
             message[receiver].sender = clientNumber;
             strcpy(message[receiver].detail,mptr);
             pthread_mutex_unlock(&mutex);
@@ -276,6 +279,9 @@ void socketHandle(void *connectFmptr)
         }
         else if(fileMode==on) // recv file from client
         {
+
+            //first string is receiver's nummber 
+
             command[1]='\0';
 
             receiver = atoi(command);
@@ -291,11 +297,13 @@ void socketHandle(void *connectFmptr)
                 continue;
             }
 
+            // Get filename from client
             if( (ret=read(fd, buff, BUFFER_MAX)) > 0)
             {
                 strcpy(filename,buff);
             }
 
+            // recv file 
             openfd = open(filename, O_WRONLY|O_CREAT, S_IRWXU|S_IRWXG);
 
             if(openfd<0)
@@ -408,6 +416,7 @@ int main()
         exit(-1);
     } 
 
+    // make port reused
     setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
     if( (bind(listenfd, res->ai_addr, res->ai_addrlen)) <0) // link specified port to kernel
@@ -440,11 +449,13 @@ int main()
             printf("[Server] Accept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
         }
 
+        // thread is pthread array
         pthread_create(thread+userNumber,NULL,(void *)socketHandle,&connfd);
 
         userNumber++;
     }
 
+    // release all resource used by threads
     for(int i=0;i<userNumber;i++)
     {
         pthread_join(thread[i],NULL);
