@@ -18,41 +18,41 @@
 #define PORT "9527"
 #define BUFFER_MAX 4096
 #define MESSAG_MAX 2048
+#define USER_MAX 10
 #define MAX_ONLINE
 #define on 1
 #define off 0
 
 
 
-typedef struct
+typedef struct//used to record user's info, 0 is for broadcast, 1~n is for user
 {      
-    int enable; 
+    int enable; //0 is offlilne
     char username[100];
     int pid;
 }ClientNode;
 
-typedef struct
+typedef struct//傳送訊息用
 {     
-    int enable;
-    int sender;
+    int enable;//if message have not been read, enable is 1.
+    int sender;// record sender's user number
     char detail[MESSAG_MAX];
 }MessageNode;
 
 
-typedef struct
+typedef struct//傳送檔案用
 {
     int enable;
     int sender;
     char filename[MESSAG_MAX];
 }FileNode;
 
-
-
 ClientNode list[100];
-MessageNode message[6]; //0 is public channel for broadcast ,1~5 is private channel
-FileNode file[6];
-int count=1; //紀錄有幾個使用者登入了
-int broadcast[6];
+MessageNode message[USER_MAX+1]; //0 is public channel for broadcast ,1~USER_MAX is private channel
+FileNode file[USER_MAX+1];
+
+int count=1; //紀錄有幾個使用者登入了。因為0永來廣播，所以從1開始。
+int broadcast[USER_MAX+1];
 pthread_mutex_t mutex;
 
 
@@ -70,7 +70,7 @@ void initNode()
         list[i].enable=0;
     }
 
-    for(int i=0;i<6;i++) 
+    for(int i=0;i<USER_MAX+1;i++) 
     {
         message[i].enable = 0;
         message[i].sender = 0;
@@ -82,6 +82,8 @@ void initNode()
     }
 }
 
+
+//send "*" to notify client that this is end of data
 ssize_t endSend(int fd)
 {
     char tmp[BUFFER_MAX]={'\0'};
@@ -124,15 +126,18 @@ void sendFile(int fd, int clientNumber)
     char tmp[BUFFER_MAX+1];
     ssize_t ret;
 
+    //send "recvfile" so that client can start recv mode
     sprintf(tmp,"recvFile");
     ret = send(fd,tmp,BUFFER_MAX,0);
 
+    //send file sender and filename to client for opening file
     sprintf(tmp,"%d",file[clientNumber].sender);
     send(fd,tmp,BUFFER_MAX,0);
 
     sprintf(tmp,"%s",file[clientNumber].filename);
     send(fd,tmp,BUFFER_MAX,0);
 
+    //send file
     openfd = open(file[clientNumber].filename,O_RDONLY);
 
     while( (ret=read(openfd,tmp,BUFFER_MAX)) > 0)
@@ -143,7 +148,7 @@ void sendFile(int fd, int clientNumber)
 
     close(openfd);
 
-    printf("Send file successfully.\n");
+    printf("Finish file transfer\n");
 
     pthread_mutex_lock(&mutex);
     file[clientNumber].enable=0;
@@ -189,7 +194,7 @@ void socketHandle(void *connectFmptr)
 
     pthread_mutex_unlock(&mutex);
 
-
+    //send login info to client
     sprintf(tmp,"Login Successfully\n");
     send(fd,tmp,strlen(tmp),0);
 
@@ -200,7 +205,7 @@ void socketHandle(void *connectFmptr)
         memset(tmp,0,sizeof(tmp));
         memcpy(command,buff,sizeof(buff));
 
-        //client會按下ENTER以獲取訊息，server會回傳"."和message(如果有的話)給client
+        //client會按下ENTER(送出newline)以獲取訊息，server會回傳"."和message(如果有的話)給client
         if(!strncmp(command,"\n",1)) 
         {
             sprintf(tmp,".");
@@ -226,8 +231,9 @@ void socketHandle(void *connectFmptr)
 
         if(talkMode==on)
         {
-            //cut string with token ":" for syntax checking
             //Format "Receiver Number:Message"
+            //cut string with token ":" for syntax checking
+   
             rptr = strtok(command,delim);
             mptr = strtok(NULL,delim);
 
@@ -244,7 +250,9 @@ void socketHandle(void *connectFmptr)
             printf("[Talk Syntax] receiver: %d\n",receiver);
             printf("[Talk Syntax] Message: %s\n",mptr);
 
-            if(receiver>5 || receiver<0 || receiver==clientNumber || list[receiver].enable==0)
+            // Check if receiver is ligel.
+            // Illegal condition includes sending message to itself or someone offline.
+            if(receiver>USER_MAX || receiver<0 || receiver==clientNumber || list[receiver].enable==0)
             {
                 sprintf(tmp,"[Error] Illegal receiver\n");
                 ret = send(fd,tmp,BUFFER_MAX,0);
@@ -252,12 +260,9 @@ void socketHandle(void *connectFmptr)
                 talkMode=off;
                 continue;
             }
-            else if(receiver==0)
+            else if(receiver==0)// for broadcast
             {
-                for(int i=0;i<6;i++)
-                {
-                    broadcast[i]=1;
-                }
+                for(int i=0;i<USER_MAX+1;i++) broadcast[i]=1;
             }
 
             pthread_mutex_lock(&mutex);
@@ -269,7 +274,7 @@ void socketHandle(void *connectFmptr)
             talkMode=off;
             sprintf(tmp,"Send Successfully\n");   
         }
-        else if(fileMode==on)
+        else if(fileMode==on) // recv file from client
         {
             command[1]='\0';
 
@@ -277,7 +282,7 @@ void socketHandle(void *connectFmptr)
 
             printf("[Receiver] %d\n",receiver);
 
-            if(receiver>5 || receiver<1 || receiver==clientNumber)
+            if(receiver>USER_MAX || receiver<1 || receiver==clientNumber)
             {
                 sprintf(tmp,"[Error] Illegal receiver\n");
                 ret = send(fd,tmp,BUFFER_MAX,0);
@@ -387,7 +392,7 @@ int main()
     struct sockaddr_in ClientInfo;
     struct addrinfo hints,*res;
     char tmpstr[BUFFER_MAX];
-    pthread_t thread1,thread2,thread3,thread4,thread5;
+    pthread_t thread[USER_MAX];
     
     initNode();
 
@@ -436,36 +441,12 @@ int main()
             printf("[Server] Accept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
         }
 
-        userNumber++;
+        pthread_create(&thread[userNumber],NULL,(void *)socketHandle,&connfd);
 
-        if((userNumber%5)==1)
-        {
-            pthread_create(&thread1,NULL,(void *)socketHandle,&connfd);
-        }
-        else if((userNumber%5)==2)
-        {
-            pthread_create(&thread2,NULL,(void *)socketHandle,&connfd);
-        }
-        else if((userNumber%5)==3)
-        {
-            pthread_create(&thread3,NULL,(void *)socketHandle,&connfd);
-        }
-        else if((userNumber%5)==4)
-        {
-            pthread_create(&thread4,NULL,(void *)socketHandle,&connfd);
-        }
-        else if((userNumber%5)==0)
-        {
-            pthread_create(&thread5,NULL,(void *)socketHandle,&connfd);
-        }
+        userNumber++;
     }
 
-    pthread_join(thread1,NULL);
-    pthread_join(thread2,NULL);
-    pthread_join(thread3,NULL);
-    pthread_join(thread4,NULL);
-    pthread_join(thread5,NULL);
-    
-
+    for(int i=0,i<userNumber,i++) pthread_join(thread[i],NULL);
+       
     return 0;
 }
