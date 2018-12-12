@@ -441,12 +441,14 @@ int main()
             printf("[Server] Accept from port:%d IP:%s\n",ntohs(ClientInfo.sin_port),tmpstr);
         }
 
-        pthread_create(&thread[userNumber],NULL,(void *)socketHandle,&connfd);
+        pthread_create(thread+userNumber,NULL,(void *)socketHandle,&connfd);
 
         userNumber++;
     }
 
-    for(int i=0,i<userNumber,i++) pthread_join(thread[i],NULL);
-       
+    for(int i=0;i<userNumber;i++)
+    {
+        pthread_join(thread[i],NULL);
+    }      
     return 0;
 }
