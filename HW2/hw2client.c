@@ -15,6 +15,17 @@
 #define BUFFER_MAX 4096
 #define PORT "9527"
 
+int running=0;
+
+void update_handler()
+{
+    if(running==0)
+    {
+        fprintf(stdin,"\n");
+    }
+}
+
+//用來取得
 void *get_in_addr(struct sockaddr *sa)
 {
 	if (sa->sa_family == AF_INET) {
@@ -90,16 +101,20 @@ int main(int argc, char **argv)
         printf("%s\n",tmp);
     }
 
+    signal(SIGALRM,update_handler);
+    alarm(1);
 
     while(fgets(tmp,BUFFER_MAX-1,stdin))
     {
-
+        
         //printf("Enter While\n");
         numberByte = send(sockfd,tmp,BUFFER_MAX,0);
 
         // 因為fgets會依據參數BUFFER_MAX自動切字串，
         // 所以不需要擔心stdin會超過sizeof(tmp)，
         // 因此也不需要用while(numberByte = write(...))來傳資料
+
+        running=1;
 
         while( (numberByte = recv(sockfd,tmp,BUFFER_MAX,0)) >0)
         {
@@ -232,6 +247,8 @@ int main(int argc, char **argv)
         }
 
         memset(tmp,'\0',sizeof(tmp));
+
+        running=0;
     }
 
 	close(sockfd);

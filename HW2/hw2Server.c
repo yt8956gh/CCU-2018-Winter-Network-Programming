@@ -386,7 +386,6 @@ void socketHandle(void *connectFmptr)
 
 int main()
 {
-	
     int listenfd, connfd, yes=1, userNumber=0;
     socklen_t addr_size;
     struct sockaddr_in ClientInfo;
