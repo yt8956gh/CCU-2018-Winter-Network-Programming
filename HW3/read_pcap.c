@@ -16,7 +16,7 @@
 #define STR_BUF 16
 
 
-
+/* Formats of IP/TCP in package refer to https://www.tcpdump.org/pcap.html */
 
 /* Ethernet header */
 struct sniff_ethernet
@@ -75,6 +75,8 @@ struct sniff_tcp
 
 #define SIZE_ETHERNET 14
 
+
+// Type number of protocol
 #define ETHERTYPE_CPU 0x9000, 0x010c
 #define ETHERTYPE_VLAN 0x8100, 0x9100, 0x9200, 0x9300
 #define ETHERTYPE_MPLS 0x8847
@@ -87,11 +89,12 @@ struct sniff_tcp
 #define ETHERTYPE_ROCE 0x8915
 #define ETHERTYPE_FCOE 0x8906
 
+void analysis_package(const u_char *packet); // 
 
+static const char *ip_ntoa(struct in_addr i); // ip to string
 
-void analysis_package(const u_char *packet);
-static const char *ip_ntoa(struct in_addr i);
-void time_transfer(time_t time_tmp);
+void time_transfer(time_t time_tmp); // time_t to string
+
 
 int main(int argc, const char** argv)
 {
@@ -176,7 +179,7 @@ void time_transfer(time_t time_tmp)
 {
     static char str_time[100];
     struct tm *local_time = NULL;
-    time_t utc_time;
+
     local_time = localtime(&time_tmp);
     strftime(str_time, sizeof(str_time), "%Y-%m-%d  %H:%M:%S", local_time);
     printf ("[Time]\t\t%s\n", str_time);
@@ -201,11 +204,8 @@ void analysis_package(const u_char *packet)
     const struct sniff_ethernet *ethernet; /*以太網頭*/
     const struct sniff_ip *ip; /*IP頭*/
     const struct sniff_tcp *tcp; /*TCP頭*/
-    const char *payload; /*數據包有效負載*/
     u_int size_ip;
     u_int size_tcp;
-    u_char protocol = ip->ip_p;
-
 
     ethernet =(struct sniff_ethernet *)(packet);
     ip =(struct sniff_ip *)(packet + SIZE_ETHERNET);
@@ -245,8 +245,6 @@ void analysis_package(const u_char *packet)
         printf("[Error] Invalid TCP header length: %u bytes\n",size_tcp);
         //return;
     }
-    payload =(u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
-
 
     printf("[Source IP]\t%s\n", ip_ntoa(ip->ip_src));
     printf("[Source Port]\t%u\n\n",ntohs(tcp->th_sport));
