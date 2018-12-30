@@ -238,7 +238,7 @@ void analysis_package(const u_char *packet)
         //return;
     }
 
-    tcp =(struct sniff_tcp *)(packet+ SIZE_ETHERNET + size_ip);
+    tcp = (struct sniff_tcp *)(packet+ SIZE_ETHERNET + size_ip);
     size_tcp = TH_OFF(tcp)* 4;
 
     if(size_tcp <20){
