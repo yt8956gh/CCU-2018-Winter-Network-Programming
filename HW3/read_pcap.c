@@ -266,7 +266,7 @@ void analysis_package(const u_char *packet)
         //return;
     }
 
-    tcp =(struct sniff_tcp *)(packet+ SIZE_ETHERNET + size_ip);
+    tcp = (struct sniff_tcp *)(packet+ SIZE_ETHERNET + size_ip);
     size_tcp = TH_OFF(tcp)* 4;
 
     printf("[Source IP]\t%s\n", ip_ntoa(ip->ip_src));
