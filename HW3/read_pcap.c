@@ -9,7 +9,10 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/in.h>
 #include <time.h>
+
+
 
 
 #define ETHER_ADDR_LEN 6
@@ -213,41 +216,71 @@ void analysis_package(const u_char *packet)
 
     u_int16_t type = ntohs(ethernet->ether_type);
 
-    printf("[Protocol]\t");
+    printf("[Ethernet Type]\t");
+
     switch (type) {
 
         case ETHERTYPE_IPV4:
-            printf("IPv4\n\n");
+            printf("IPv4\n");
             break;
             
         case ETHERTYPE_RARP:
-            printf("RARP\n\n");
+            printf("RARP\n");
             return;
             
         case ETHERTYPE_IPV6:
-            printf("IPv6\n\n");
-            return;
+            printf("IPv6\n");
+            break;
             
         default:
-            printf("%#06x\n", type);
+            printf("Unknown %#06x\n", type);
             return;
     }//end switch
 
+
+    switch(ip->ip_p)
+    {
+        case IPPROTO_TCP:
+            printf("[Protocol]\tTCP\n\n");
+            break;
+
+        case IPPROTO_UDP:
+            printf("[Protocol]\tUDP\n\n");
+            break;
+
+        case IPPROTO_ICMP:
+            printf("[Protocol]\tICMP\n\n");
+            break;
+
+        case IPPROTO_IP:
+            printf("[Protocol]\tIP\n\n");
+            break;
+
+        default:
+            printf("[Protocol]\tunknown\n\n");
+            return;
+    }
+
     if(size_ip <20){
-        printf("[Error] Invalid IP header length: %u bytes\n",size_ip);
+        //printf("[Error] Invalid IP header length: %u bytes\n",size_ip);
         //return;
     }
 
     tcp =(struct sniff_tcp *)(packet+ SIZE_ETHERNET + size_ip);
     size_tcp = TH_OFF(tcp)* 4;
 
+    printf("[Source IP]\t%s\n", ip_ntoa(ip->ip_src));
+    printf("[Dest. IP]\t%s\n\n", ip_ntoa(ip->ip_dst));
+
+
+
     if(size_tcp <20){
-        printf("[Error] Invalid TCP header length: %u bytes\n",size_tcp);
+        //printf("[Error] Invalid TCP header length: %u bytes\n",size_tcp);
         //return;
     }
 
-    printf("[Source IP]\t%s\n", ip_ntoa(ip->ip_src));
-    printf("[Source Port]\t%u\n\n",ntohs(tcp->th_sport));
-    printf("[Dest. IP]\t%s\n", ip_ntoa(ip->ip_dst));
+    printf("[Source Port]\t%u\n",ntohs(tcp->th_sport));
     printf("[Dest. Port]\t%u\n\n",ntohs(tcp->th_dport));
+
+    return;
 }
